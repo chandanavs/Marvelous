@@ -2,14 +2,21 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/gorilla/mux"
 )
 
-var avenger []heros = []heros{}
-var mutant []heros = []heros{}
-var antiheroes []heros = []heros{}
+var hero = []heros{}
+var ch = make([]character, 15)
+var flag int = 0
+
+var (
+	timeSumsMu sync.RWMutex
+)
 
 type character struct {
 	Name     string `json:"name"`
@@ -22,21 +29,14 @@ type heros struct {
 
 func main() {
 	router := mux.NewRouter()
-	
-	//api to add avengers
-	router.HandleFunc("/marvels/addavengers", addAvenger).Methods("POST")
-	
-	//api to add mutants
-	router.HandleFunc("/marvels/addmutants", addMutants).Methods("POST")
-	//api to add anti heros
-	router.HandleFunc("/marvels/addantiheroes", addAntiHeroes).Methods("POST")
-	
-	//apis to get the power level of given name of characters
-	router.HandleFunc("/marvels/avenger/{name}", getAvengerPower).Methods("GET")
-	router.HandleFunc("/marvels/mutals/{name}", getMutantPower).Methods("GET")
-	router.HandleFunc("/marvels/antihero/{name}", getAntiPower).Methods("GET")
+	go runDataLoop()
+	router.HandleFunc("/marvels/addavengers", addHero).Methods("POST")
+	router.HandleFunc("/marvels/addmutants", addHero).Methods("POST")
+	router.HandleFunc("/marvels/addantiheroes", addHero).Methods("POST")
+	router.HandleFunc("/marvels/{name}", getPower).Methods("GET")
+	//router.HandleFunc("/marvels/mutals/{name}", getMutantPower).Methods("GET")
+	//router.HandleFunc("/marvels/antihero/{name}", getAntiPower).Methods("GET")
 	router.HandleFunc("/marvels", getAllCharacters).Methods("GET")
-	
 	//start web server
 	err := http.ListenAndServe(":5000", router)
 	if err != nil {
@@ -44,70 +44,64 @@ func main() {
 	}
 
 }
+func runDataLoop() {
+	for {
+		timeSumsMu.Lock()
+		for i := range hero {
+			for j := range hero[i].Character {
+				hero[i].Character[j].Maxpower += 5
+			}
+		}
+		timeSumsMu.Unlock()
+		time.Sleep(10 * time.Second)
+	}
+}
+
 func getAllCharacters(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(avenger)
-	json.NewEncoder(w).Encode(mutant)
-	json.NewEncoder(w).Encode(antiheroes)
+	json.NewEncoder(w).Encode(hero)
 }
-
-func addAvenger(w http.ResponseWriter, r *http.Request) {
+func addHero(w http.ResponseWriter, r *http.Request) {
 	var newAvenger heros
+	var cha character
+	w.Header().Set("Content-Type", "application/json")
 	json.NewDecoder(r.Body).Decode(&newAvenger)
-	avenger = append(avenger, newAvenger)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(avenger)
-}
+	for i := range newAvenger.Character {
+		cha.Name = newAvenger.Character[i].Name
+		cha.Maxpower = newAvenger.Character[i].Maxpower
+		ch = append(ch, cha)
+	}
 
-func addMutants(w http.ResponseWriter, r *http.Request) {
-	var newMutant heros
-	json.NewDecoder(r.Body).Decode(&newMutant)
-	mutant = append(mutant, newMutant)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(mutant)
-}
-
-func addAntiHeroes(w http.ResponseWriter, r *http.Request) {
-	var newAnti heros
-	json.NewDecoder(r.Body).Decode(&newAnti)
-	antiheroes = append(antiheroes, newAnti)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(newAnti)
-}
-
-func getAvengerPower(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	for _, item := range avenger {
-		for _, name := range item.Character {
-			if name.Name == params["name"] {
-				json.NewEncoder(w).Encode(name.Maxpower)
-				return
+	for i := range hero {
+		if newAvenger.Name == hero[i].Name {
+			for j := range newAvenger.Character {
+				cha.Name = newAvenger.Character[j].Name
+				cha.Maxpower = newAvenger.Character[j].Maxpower
+				hero[i].Character = append(hero[i].Character, cha)
+				flag = 1
 			}
 		}
 
 	}
-}
-
-func getMutantPower(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	for _, item := range mutant {
-		for _, name := range item.Character {
-			if name.Name == params["name"] {
-				json.NewEncoder(w).Encode(name.Maxpower)
-				return
-			}
-		}
+	if flag == 1 {
+		json.NewEncoder(w).Encode(hero)
+	} else {
+		hero = append(hero, newAvenger)
+		json.NewEncoder(w).Encode(hero)
 	}
+
 }
 
-func getAntiPower(w http.ResponseWriter, r *http.Request) {
+func getPower(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	for _, item := range antiheroes {
+	w.Header().Set("Content-Type", "application/json")
+	for _, item := range hero {
 		for _, name := range item.Character {
 			if name.Name == params["name"] {
-				json.NewEncoder(w).Encode(name.Maxpower)
-				return
+				json.NewEncoder(w).Encode(name)
+
 			}
 		}
+
 	}
 }
